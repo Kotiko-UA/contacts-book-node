@@ -13,7 +13,7 @@ import { ctrlWrapper } from '../decorators/index.js';
 
 const avatarsPath = path.resolve('public', 'avatars');
 
-const { JWT_SECRET } = process.env;
+const { JWT_SECRET, BASE_URL } = process.env;
 
 const register = async (req, res) => {
   const { email, password } = req.body;
