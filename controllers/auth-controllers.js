@@ -5,9 +5,10 @@ import gravatar from 'gravatar';
 import fs from 'fs/promises';
 import path from 'path';
 import Jimp from 'jimp';
+import { nanoid } from 'nanoid';
 //avatar branch
 
-import { HttpError } from '../helpers/index.js';
+import { HttpError, sendEmail } from '../helpers/index.js';
 import { ctrlWrapper } from '../decorators/index.js';
 
 const avatarsPath = path.resolve('public', 'avatars');
@@ -23,15 +24,66 @@ const register = async (req, res) => {
   const hashPassword = await bcrypt.hash(password, 10);
 
   const avatarURL = gravatar.url(email);
+  const verificationToken = nanoid();
 
   const newUser = await User.create({
     ...req.body,
     password: hashPassword,
     avatarURL,
+    verificationToken,
   });
+
+  const verifyEmail = {
+    to: email,
+    subject: 'Verify email',
+    html: `<p>For complite registration </p><a target="_blank" href="${BASE_URL}/api/users/verify/${verificationToken}">click this link</a>`,
+  };
+
+  await sendEmail(verifyEmail);
+
   res.status(201).json({
     email: newUser.email,
     subscription: newUser.subscription,
+  });
+};
+const verify = async (req, res) => {
+  const { verificationToken } = req.params;
+  const user = await User.findOne({ verificationToken });
+  if (!user) {
+    throw HttpError(404, 'User not found');
+  }
+  await User.updateOne(
+    { _id: user._id },
+    {
+      verify: true,
+      verificationToken: null,
+    }
+  );
+
+  res.json({
+    message: 'Verification successful',
+  });
+};
+
+const resendVerify = async (req, res) => {
+  const { email } = req.body;
+  const user = await User.findOne({ email });
+  if (!user) {
+    throw HttpError(401, 'Email not found');
+  }
+  if (user.verify) {
+    throw HttpError(400, 'Verification has already been passed');
+  }
+  const verifyEmail = {
+    to: email,
+    subject: 'Verify email',
+    html: `<p>For complite registration </p><a target="_blank" href="${BASE_URL}/api/users/verify/${user.verificationToken}">click this link</a>`,
+  };
+
+  await sendEmail(verifyEmail);
+
+  res.json({
+    message: 'Email send success',
   });
 };
 
@@ -45,6 +97,11 @@ const login = async (req, res) => {
   if (!passwordCompare) {
     throw HttpError(401, 'Email or password invalid');
   }
+
+  if (!user.verify) {
+    throw HttpError(401, 'Email not verify');
+  }
+
   const payload = {
     id: user._id,
   };
@@ -64,7 +121,6 @@ const login = async (req, res) => {
 
 const current = async (req, res) => {
   const { subscription, email } = req.user;
-  console.log(subscription, email);
 
   res.json({
     email,
@@ -108,6 +164,8 @@ const logout = async (req, res) => {
 
 export default {
   register: ctrlWrapper(register),
+  verify: ctrlWrapper(verify),
+  resendVerify: ctrlWrapper(resendVerify),
   login: ctrlWrapper(login),
   logout: ctrlWrapper(logout),
   updateSubscription: ctrlWrapper(updateSubscription),
